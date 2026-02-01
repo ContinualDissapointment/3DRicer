@@ -2,10 +2,13 @@
 
 A single-page Three.js app for placing custom image decals on a 3D PS5 DualSense controller model. No build step required — just open in a browser.
 
+<img width="1699" height="955" alt="{10309AA3-9C97-4D28-82B2-86146E0049C1}" src="https://github.com/user-attachments/assets/ab1f098b-6192-46a9-a314-9ee6b3045a62" />
+
+
 ## Setup
 
 1. Clone the repo
-2. Download a DualSense controller model in glTF format (e.g. from [Sketchfab](https://sketchfab.com/tags/dualsense)) and place it in a `models/` directory
+2. Download a DualSense controller model in glTF format (e.g. from [Sketchfab](https://sketchfab.com/tags/dualsense)) and place it in a `models/` directory (I personally reccomend and test using Jayakrishnan Marath's (https://sketchfab.com/jayhystic22) model, using 3dripper or improper models will result in different sectioning and potential mesh issues.
 3. Update the `modelPath` variable in `app.js` to point to your `.gltf` file
 4. Serve locally:
    ```
@@ -28,6 +31,9 @@ A single-page Three.js app for placing custom image decals on a 3D PS5 DualSense
 | Rotate decal | R / E (opposite direction) |
 | Flip decal | H (horizontal) / V (vertical) |
 | Delete decal | Delete / Backspace |
+| Move selected decal up in layer order | Keyboard up|
+| Move selected decal down in layer order | Keyboard down |
+
 
 ## Features
 
@@ -39,6 +45,9 @@ A single-page Three.js app for placing custom image decals on a 3D PS5 DualSense
 - Preserves image aspect ratio
 - Toggleable lighting
 - Dark theme UI
+- Layer order and visibility panel
+- Modify the color of each section of the controllers model imported
+- Transparency support
 
 ## Tech
 
