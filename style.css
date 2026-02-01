@@ -157,6 +157,39 @@ body {
   padding: 1px 5px; font-size: 0.75rem; color: #ccc;
 }
 
+/* Layer items */
+#layers-list {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.layer-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 4px;
+  background: #2a2a2a; cursor: grab;
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.layer-item:hover { background: #333; }
+.layer-item.selected { border-color: #508cff; background: #2a3a5a; }
+.layer-item.drag-over { border-top: 2px solid #508cff; }
+.layer-item .layer-thumb {
+  width: 32px; height: 32px; object-fit: contain;
+  border-radius: 3px; background: #1a1a1a; flex-shrink: 0;
+}
+.layer-item .layer-name {
+  flex: 1; font-size: 0.75rem; color: #ccc;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+.layer-item .layer-eye {
+  width: 22px; height: 22px; border: none; background: none;
+  cursor: pointer; font-size: 0.8rem; padding: 0;
+  color: #aaa; flex-shrink: 0; border-radius: 3px;
+}
+.layer-item .layer-eye:hover { background: #444; }
+.layer-item .layer-eye.hidden-decal { color: #555; }
+.layer-item.dragging { opacity: 0.4; }
+#layers-empty { margin-top: 4px; }
+
 @media (max-width: 600px) {
   #sidebar { width: 180px; transform: translateX(-180px); }
 }

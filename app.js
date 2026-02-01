@@ -192,6 +192,7 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   decals.forEach(d => scene.remove(d.mesh));
   decals = [];
   selectedDecal = null;
+  refreshLayersPanel();
   showStatus('Decals cleared');
 });
 
@@ -395,6 +396,7 @@ document.getElementById('crop-confirm').addEventListener('click', () => {
   const tex = new THREE.CanvasTexture(tempCanvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   placingTexture = tex;
+  placingThumbnail = tempCanvas.toDataURL('image/png');
   placingAspect = cropRect.w / cropRect.h;
   cropOverlay.classList.add('hidden');
   controls.enabled = true;
@@ -411,6 +413,7 @@ document.getElementById('crop-cancel').addEventListener('click', () => {
 // DECALS
 // ═══════════════════════════════════════════════
 let placingTexture = null;
+let placingThumbnail = null;
 let placingAspect = 1;
 let decals = [];
 let selectedDecal = null;
@@ -476,8 +479,9 @@ function placeDecal(hit, texture, size = 0.04, rotation = 0, aspect = 1) {
   scene.add(decalMesh);
 
   decalMesh.renderOrder = 0;
-  const decalObj = { mesh: decalMesh, position, normal, orient, size, rotation, texture, hit, flipH: false, flipV: false, aspect, layer: 0 };
+  const decalObj = { mesh: decalMesh, position, normal, orient, size, rotation, texture, hit, flipH: false, flipV: false, aspect, layer: 0, visible: true, thumbnail: placingThumbnail };
   decals.push(decalObj);
+  refreshLayersPanel();
   return decalObj;
 }
 
@@ -579,7 +583,9 @@ canvas.addEventListener('mouseup', (e) => {
       const decal = placeDecal(hit, placingTexture, 0.04, 0, placingAspect);
       selectedDecal = decal;
       placingTexture = null;
+      placingThumbnail = null;
       placingAspect = 1;
+      refreshLayersPanel();
       showStatus('Decal placed! Ctrl+Scroll resize, R rotate, H/V flip, Del remove');
     }
     return;
@@ -592,11 +598,13 @@ canvas.addEventListener('mouseup', (e) => {
     const hits = raycaster.intersectObject(d.mesh, false);
     if (hits.length > 0) {
       selectedDecal = d;
+      refreshLayersPanel();
       showStatus('Decal selected — drag to move, Ctrl+Scroll resize, R/H/V/Del');
       return;
     }
   }
   selectedDecal = null;
+  refreshLayersPanel();
 });
 
 // ─── Scroll to resize ───
@@ -634,14 +642,31 @@ document.addEventListener('keydown', (e) => {
     rebuildDecal(selectedDecal);
     showStatus('Flipped vertically');
   }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    const order = [...decals].sort((a, b) => (b.layer || 0) - (a.layer || 0));
+    const idx = order.indexOf(selectedDecal);
+    const newIdx = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= order.length) return;
+    order.splice(idx, 1);
+    order.splice(newIdx, 0, selectedDecal);
+    order.forEach((d, i) => {
+      d.layer = order.length - 1 - i;
+      d.mesh.renderOrder = d.layer;
+    });
+    refreshLayersPanel();
+    showStatus('Layer: ' + selectedDecal.layer);
+  }
   if (e.key === ']') {
     selectedDecal.layer = (selectedDecal.layer || 0) + 1;
     selectedDecal.mesh.renderOrder = selectedDecal.layer;
+    refreshLayersPanel();
     showStatus('Layer: ' + selectedDecal.layer);
   }
   if (e.key === '[') {
     selectedDecal.layer = Math.max(0, (selectedDecal.layer || 0) - 1);
     selectedDecal.mesh.renderOrder = selectedDecal.layer;
+    refreshLayersPanel();
     showStatus('Layer: ' + selectedDecal.layer);
   }
   if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -650,6 +675,7 @@ document.addEventListener('keydown', (e) => {
     selectedDecal.mesh.material.dispose();
     decals = decals.filter(d => d !== selectedDecal);
     selectedDecal = null;
+    refreshLayersPanel();
     showStatus('Decal removed');
   }
 });
@@ -659,5 +685,100 @@ document.addEventListener('keydown', (e) => {
 canvas.addEventListener('dblclick', () => {
   if (!placingTexture) fileInput.click();
 });
+
+// ═══════════════════════════════════════════════
+// LAYERS PANEL
+// ═══════════════════════════════════════════════
+const layersList = document.getElementById('layers-list');
+const layersEmpty = document.getElementById('layers-empty');
+let dragSrcDecal = null;
+
+function refreshLayersPanel() {
+  layersList.innerHTML = '';
+  // Sort decals by layer descending (highest on top, like Photoshop)
+  const sorted = [...decals].sort((a, b) => (b.layer || 0) - (a.layer || 0));
+  layersEmpty.style.display = decals.length === 0 ? '' : 'none';
+
+  sorted.forEach((decal, idx) => {
+    const item = document.createElement('div');
+    item.className = 'layer-item' + (decal === selectedDecal ? ' selected' : '');
+    item.draggable = true;
+    item.dataset.idx = idx;
+
+    // Thumbnail
+    const thumb = document.createElement('img');
+    thumb.className = 'layer-thumb';
+    thumb.src = decal.thumbnail || '';
+    item.appendChild(thumb);
+
+    // Name
+    const name = document.createElement('span');
+    name.className = 'layer-name';
+    name.textContent = 'Decal ' + (decals.indexOf(decal) + 1);
+    item.appendChild(name);
+
+    // Eye toggle
+    const eye = document.createElement('button');
+    eye.className = 'layer-eye' + (decal.visible === false ? ' hidden-decal' : '');
+    eye.textContent = decal.visible === false ? '\u25CC' : '\u25C9';
+    eye.title = decal.visible === false ? 'Show' : 'Hide';
+    eye.addEventListener('click', (e) => {
+      e.stopPropagation();
+      decal.visible = !decal.visible;
+      decal.mesh.visible = decal.visible;
+      refreshLayersPanel();
+    });
+    item.appendChild(eye);
+
+    // Click to select
+    item.addEventListener('click', () => {
+      selectedDecal = decal;
+      refreshLayersPanel();
+      showStatus('Decal ' + (decals.indexOf(decal) + 1) + ' selected — Layer ' + (decal.layer || 0));
+    });
+
+    // Drag to reorder
+    item.addEventListener('dragstart', (e) => {
+      dragSrcDecal = decal;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      dragSrcDecal = null;
+      // Remove all drag-over indicators
+      layersList.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // Clear others, highlight this
+      layersList.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      if (dragSrcDecal !== decal) item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      if (!dragSrcDecal || dragSrcDecal === decal) return;
+      // Reorder: move dragged decal to the dropped position in sorted order,
+      // then reassign layers top-down so they get unique contiguous values.
+      const order = [...decals].sort((a, b) => (b.layer || 0) - (a.layer || 0));
+      order.splice(order.indexOf(dragSrcDecal), 1);
+      const dropIdx = order.indexOf(decal);
+      order.splice(dropIdx, 0, dragSrcDecal);
+      // Reassign layers: top of list = highest layer
+      order.forEach((d, i) => {
+        d.layer = order.length - 1 - i;
+        d.mesh.renderOrder = d.layer;
+      });
+      refreshLayersPanel();
+    });
+
+    layersList.appendChild(item);
+  });
+}
 
 showStatus('Loading model…');
