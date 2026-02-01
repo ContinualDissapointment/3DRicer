@@ -108,11 +108,13 @@ const sectionMap = {
   'Port': 'Port',
 };
 
+let matMeshMap = {};
+
 function buildColorPickers(meshes) {
   const container = document.getElementById('color-inputs');
   container.innerHTML = '';
   // Map material names to meshes (multiple meshes can share a material name)
-  const matMeshMap = {};
+  matMeshMap = {};
   meshes.forEach(m => {
     const name = m.material?.name || '';
     if (!matMeshMap[name]) matMeshMap[name] = [];
@@ -266,6 +268,9 @@ let cropImg = null;
 let cropRect = { x: 0, y: 0, w: 0, h: 0 };
 let cropDragging = false;
 let cropStart = { x: 0, y: 0 };
+let wandActive = false;
+let cropWorkCanvas = null;
+let cropWorkCtx = null;
 
 function openCropUI(img) {
   cropImg = img;
@@ -280,6 +285,19 @@ function openCropUI(img) {
   cropCanvas.height = img.height * scale;
   cropCanvas._scale = scale;
 
+  // Init full-res work canvas for wand transparency
+  cropWorkCanvas = document.createElement('canvas');
+  cropWorkCanvas.width = img.width;
+  cropWorkCanvas.height = img.height;
+  cropWorkCtx = cropWorkCanvas.getContext('2d');
+  cropWorkCtx.drawImage(img, 0, 0);
+
+  // Reset wand state
+  wandActive = false;
+  document.getElementById('crop-wand').classList.remove('active');
+  document.getElementById('crop-tolerance-label').classList.add('hidden');
+  cropCanvas.classList.remove('wand-active');
+
   // Default crop: center 80%
   const margin = 0.1;
   cropRect = {
@@ -293,16 +311,25 @@ function openCropUI(img) {
 
 function drawCrop() {
   const s = cropCanvas._scale;
+  const src = cropWorkCanvas || cropImg;
   cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-  cropCtx.drawImage(cropImg, 0, 0, cropCanvas.width, cropCanvas.height);
+  // Draw checkerboard behind to show transparency
+  drawCheckerboard(cropCtx, cropCanvas.width, cropCanvas.height);
+  cropCtx.drawImage(src, 0, 0, cropCanvas.width, cropCanvas.height);
   // Darken outside crop
   cropCtx.fillStyle = 'rgba(0,0,0,0.6)';
   cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
-  // Draw cropped area bright
-  cropCtx.drawImage(cropImg,
+  // Draw cropped area bright (with checkerboard)
+  cropCtx.save();
+  cropCtx.beginPath();
+  cropCtx.rect(cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s);
+  cropCtx.clip();
+  drawCheckerboard(cropCtx, cropCanvas.width, cropCanvas.height);
+  cropCtx.drawImage(src,
     cropRect.x, cropRect.y, cropRect.w, cropRect.h,
     cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s
   );
+  cropCtx.restore();
   // Border
   cropCtx.strokeStyle = '#508cff';
   cropCtx.lineWidth = 2;
@@ -320,9 +347,72 @@ function drawCrop() {
   });
 }
 
+function drawCheckerboard(ctx, w, h) {
+  const size = 8;
+  ctx.fillStyle = '#444';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#555';
+  for (let y = 0; y < h; y += size) {
+    for (let x = 0; x < w; x += size) {
+      if ((Math.floor(x / size) + Math.floor(y / size)) % 2 === 0) {
+        ctx.fillRect(x, y, size, size);
+      }
+    }
+  }
+}
+
+// ─── Magic Wand ───
+document.getElementById('crop-wand').addEventListener('click', () => {
+  wandActive = !wandActive;
+  document.getElementById('crop-wand').classList.toggle('active', wandActive);
+  document.getElementById('crop-tolerance-label').classList.toggle('hidden', !wandActive);
+  cropCanvas.classList.toggle('wand-active', wandActive);
+});
+
+function floodFill(imageData, startX, startY, tolerance) {
+  const { width, height, data } = imageData;
+  const idx = (startY * width + startX) * 4;
+  const seedR = data[idx], seedG = data[idx + 1], seedB = data[idx + 2];
+  const visited = new Uint8Array(width * height);
+  const stack = [startX, startY];
+  const tol = tolerance * 2.55; // 0-100 → 0-255 scale
+
+  while (stack.length > 0) {
+    const y = stack.pop();
+    const x = stack.pop();
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+    const pi = y * width + x;
+    if (visited[pi]) continue;
+    const i = pi * 4;
+    const dr = data[i] - seedR, dg = data[i + 1] - seedG, db = data[i + 2] - seedB;
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+    if (dist > tol) continue;
+    visited[pi] = 1;
+    data[i + 3] = 0; // set alpha to 0
+    stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+  }
+}
+
 let cropHandle = null; // null | 'move' | 'tl' | 'tr' | 'bl' | 'br'
 
 cropCanvas.addEventListener('mousedown', (e) => {
+  if (wandActive && cropWorkCanvas) {
+    // Wand click: flood fill on full-res work canvas
+    const rect = cropCanvas.getBoundingClientRect();
+    const s = cropCanvas._scale;
+    const fx = Math.floor((e.clientX - rect.left) / s);
+    const fy = Math.floor((e.clientY - rect.top) / s);
+    if (fx >= 0 && fx < cropWorkCanvas.width && fy >= 0 && fy < cropWorkCanvas.height) {
+      const tolerance = parseInt(document.getElementById('crop-tolerance').value, 10);
+      const imgData = cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height);
+      floodFill(imgData, fx, fy, tolerance);
+      cropWorkCtx.putImageData(imgData, 0, 0);
+      drawCrop();
+      showStatus('Background removed');
+    }
+    return;
+  }
+
   const rect = cropCanvas.getBoundingClientRect();
   const s = cropCanvas._scale;
   const mx = (e.clientX - rect.left) / s;
@@ -386,12 +476,13 @@ cropCanvas.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', () => { cropDragging = false; });
 
 document.getElementById('crop-confirm').addEventListener('click', () => {
-  // Extract cropped region
+  // Extract cropped region from work canvas (preserves wand transparency)
+  const src = cropWorkCanvas || cropImg;
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = cropRect.w;
   tempCanvas.height = cropRect.h;
   const tCtx = tempCanvas.getContext('2d');
-  tCtx.drawImage(cropImg, cropRect.x, cropRect.y, cropRect.w, cropRect.h, 0, 0, cropRect.w, cropRect.h);
+  tCtx.drawImage(src, cropRect.x, cropRect.y, cropRect.w, cropRect.h, 0, 0, cropRect.w, cropRect.h);
 
   const tex = new THREE.CanvasTexture(tempCanvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -407,6 +498,8 @@ document.getElementById('crop-cancel').addEventListener('click', () => {
   cropOverlay.classList.add('hidden');
   controls.enabled = true;
   placingTexture = null;
+  cropWorkCanvas = null;
+  cropWorkCtx = null;
 });
 
 // ═══════════════════════════════════════════════
@@ -780,5 +873,179 @@ function refreshLayersPanel() {
     layersList.appendChild(item);
   });
 }
+
+// ═══════════════════════════════════════════════
+// EXPORT PNGs
+// ═══════════════════════════════════════════════
+function dataURLtoBlob(dataURL) {
+  const parts = dataURL.split(',');
+  const mime = parts[0].match(/:(.*?);/)[1];
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function makeOrthoCamera(bbox, viewDir, up) {
+  const size = bbox.getSize(new THREE.Vector3());
+  const center = bbox.getCenter(new THREE.Vector3());
+
+  const absDir = new THREE.Vector3(Math.abs(viewDir.x), Math.abs(viewDir.y), Math.abs(viewDir.z));
+  let w, h;
+  if (absDir.x > 0.5) { w = size.z; h = size.y; }
+  else if (absDir.y > 0.5) { w = size.x; h = size.z; }
+  else { w = size.x; h = size.y; }
+
+  const pad = 1.1;
+  w *= pad; h *= pad;
+
+  const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.001, 10);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  cam.position.copy(center).addScaledVector(viewDir, maxDim * 2);
+  cam.up.copy(up);
+  cam.lookAt(center);
+  cam.updateProjectionMatrix();
+  return { cam, w, h };
+}
+
+function fitRendererToAspect(offscreen, w, h, maxDim) {
+  const aspect = w / h;
+  let rw, rh;
+  if (aspect >= 1) { rw = maxDim; rh = Math.round(maxDim / aspect); }
+  else { rh = maxDim; rw = Math.round(maxDim * aspect); }
+  offscreen.setSize(Math.max(rw, 1), Math.max(rh, 1));
+}
+
+async function exportPNGs() {
+  if (controllerMeshes.length === 0) {
+    showStatus('No model loaded');
+    return;
+  }
+
+  showStatus('Exporting ZIP…');
+  const zip = new JSZip();
+  const imgFolder = zip.folder('controller-export');
+
+  // Helper: render to data URL and add to zip
+  function addRender(renderer, scene, cam, filename) {
+    renderer.render(scene, cam);
+    const dataURL = renderer.domElement.toDataURL('image/png');
+    imgFolder.file(filename, dataURLtoBlob(dataURL));
+  }
+
+  // 1. Viewport screenshot
+  renderer.render(scene, camera);
+  imgFolder.file('controller-viewport.png', dataURLtoBlob(renderer.domElement.toDataURL('image/png')));
+
+  // Offscreen renderer for isolated renders
+  const offscreen = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+  offscreen.toneMapping = renderer.toneMapping;
+  offscreen.toneMappingExposure = renderer.toneMappingExposure;
+
+  // Save visibility state
+  const savedVisibility = new Map();
+  controllerMeshes.forEach(m => { savedVisibility.set(m, m.visible); });
+  decals.forEach(d => { savedVisibility.set(d.mesh, d.mesh.visible); });
+  const savedBackground = scene.background;
+
+  // Save original lights for restoration
+  const savedAmbientIntensity = ambientLight.intensity;
+  const savedDirIntensity = dirLight.intensity;
+  const savedDirPos = dirLight.position.clone();
+
+  function hideAll() {
+    controllerMeshes.forEach(m => { m.visible = false; });
+    decals.forEach(d => { d.mesh.visible = false; });
+    scene.background = null;
+  }
+
+  function restoreAll() {
+    savedVisibility.forEach((vis, obj) => { obj.visible = vis; });
+    scene.background = savedBackground;
+    ambientLight.intensity = savedAmbientIntensity;
+    dirLight.intensity = savedDirIntensity;
+    dirLight.position.copy(savedDirPos);
+  }
+
+  function showSectionMeshes(sectionMeshes) {
+    sectionMeshes.forEach(m => { m.visible = true; });
+    decals.forEach(d => {
+      if (savedVisibility.get(d.mesh) && sectionMeshes.includes(d.hit.object)) {
+        d.mesh.visible = true;
+      }
+    });
+  }
+
+  // Use flat, even lighting for isolated section renders so colors are accurate
+  function setFlatLighting() {
+    ambientLight.intensity = 1.8;
+    dirLight.intensity = 0.3;
+  }
+
+  // ── Per-section flat 2D orthographic renders (front, back, top, bottom, left, right) ──
+  // These are the main deliverable: isolated, flat, color-accurate section PNGs
+  const sectionOrthoViews = [
+    { suffix: 'front',  dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },
+    { suffix: 'back',   dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
+    { suffix: 'top',    dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, -1) },
+    { suffix: 'bottom', dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, 1) },
+    { suffix: 'left',   dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+    { suffix: 'right',  dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 1, 0) },
+  ];
+
+  setFlatLighting();
+
+  for (const [label, matName] of Object.entries(sectionMap)) {
+    const sectionMeshes = matMeshMap[matName];
+    if (!sectionMeshes || sectionMeshes.length === 0) continue;
+
+    hideAll();
+    showSectionMeshes(sectionMeshes);
+
+    const bbox = new THREE.Box3();
+    sectionMeshes.forEach(m => bbox.expandByObject(m));
+
+    const safeName = label.toLowerCase().replace(/\s+/g, '-');
+
+    for (const view of sectionOrthoViews) {
+      const { cam, w, h } = makeOrthoCamera(bbox, view.dir, view.up);
+      fitRendererToAspect(offscreen, w, h, 1024);
+      addRender(offscreen, scene, cam, `sections/${safeName}-${view.suffix}.png`);
+    }
+  }
+
+  // ── Full controller orthographic views (6 directions) ──
+  restoreAll();
+  scene.background = null;
+  setFlatLighting();
+
+  const fullBbox = new THREE.Box3();
+  controllerMeshes.forEach(m => { if (m.visible) fullBbox.expandByObject(m); });
+
+  for (const view of sectionOrthoViews) {
+    const { cam, w, h } = makeOrthoCamera(fullBbox, view.dir, view.up);
+    fitRendererToAspect(offscreen, w, h, 1024);
+    addRender(offscreen, scene, cam, `ortho/controller-${view.suffix}.png`);
+  }
+
+  // Restore everything
+  restoreAll();
+  offscreen.dispose();
+
+  // Generate and download ZIP
+  showStatus('Compressing ZIP…');
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'controller-export.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showStatus('Export complete — ZIP downloaded');
+}
+
+document.getElementById('btn-export').addEventListener('click', exportPNGs);
 
 showStatus('Loading model…');

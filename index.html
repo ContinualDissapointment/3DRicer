@@ -30,11 +30,16 @@
     <button id="btn-light" title="Toggle light">💡</button>
     <button id="btn-reset" title="Reset view">🔄</button>
     <button id="btn-clear" title="Clear decals">🗑️</button>
+    <button id="btn-export" title="Export PNGs">📷</button>
   </div>
 
   <div id="crop-overlay" class="hidden">
     <canvas id="crop-canvas"></canvas>
     <div id="crop-buttons">
+      <button id="crop-wand" title="Magic wand: click to remove background">🪄</button>
+      <label id="crop-tolerance-label" class="hidden">
+        Tolerance <input type="range" id="crop-tolerance" min="0" max="100" value="30">
+      </label>
       <button id="crop-confirm">✓ Apply</button>
       <button id="crop-cancel">✕ Cancel</button>
     </div>
@@ -59,6 +64,7 @@
     <button id="btn-dismiss">Got it</button>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script type="importmap">
   {
     "imports": {
