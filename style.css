@@ -83,7 +83,7 @@ body {
   font-size: 1rem;
   cursor: pointer;
 }
-#crop-wand {
+#crop-toggle, #crop-wand {
   padding: 8px 14px;
   border: 1px solid #555;
   border-radius: 6px;
@@ -92,15 +92,16 @@ body {
   font-size: 1rem;
   cursor: pointer;
 }
-#crop-wand.active { background: #508cff; border-color: #508cff; }
-#crop-wand:hover { background: #3a3a3a; }
-#crop-wand.active:hover { background: #6aa0ff; }
+#crop-toggle.active, #crop-wand.active { background: #508cff; border-color: #508cff; }
+#crop-toggle:hover, #crop-wand:hover { background: #3a3a3a; }
+#crop-toggle.active:hover, #crop-wand.active:hover { background: #6aa0ff; }
 #crop-tolerance-label {
   display: flex; align-items: center; gap: 6px;
   color: #ccc; font-size: 0.85rem;
 }
 #crop-tolerance-label.hidden { display: none; }
 #crop-tolerance { width: 100px; cursor: pointer; }
+#crop-tolerance-val { min-width: 24px; text-align: right; }
 #crop-canvas.wand-active { cursor: crosshair; }
 #crop-confirm { background: #2a6; border-color: #2a6; }
 #crop-confirm:hover { background: #3b7; }

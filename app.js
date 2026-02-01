@@ -269,8 +269,12 @@ let cropRect = { x: 0, y: 0, w: 0, h: 0 };
 let cropDragging = false;
 let cropStart = { x: 0, y: 0 };
 let wandActive = false;
+let cropActive = false;
 let cropWorkCanvas = null;
 let cropWorkCtx = null;
+let wandUndoStack = [];   // ImageData snapshots before each wand op
+let wandRedoStack = [];
+let lastWandClick = null;  // { x, y } for live tolerance replay
 
 function openCropUI(img) {
   cropImg = img;
@@ -294,18 +298,17 @@ function openCropUI(img) {
 
   // Reset wand state
   wandActive = false;
+  cropActive = false;
+  wandUndoStack = [];
+  wandRedoStack = [];
+  lastWandClick = null;
   document.getElementById('crop-wand').classList.remove('active');
+  document.getElementById('crop-toggle').classList.remove('active');
   document.getElementById('crop-tolerance-label').classList.add('hidden');
   cropCanvas.classList.remove('wand-active');
 
-  // Default crop: center 80%
-  const margin = 0.1;
-  cropRect = {
-    x: img.width * margin,
-    y: img.height * margin,
-    w: img.width * (1 - 2 * margin),
-    h: img.height * (1 - 2 * margin)
-  };
+  // Default crop: full image (crop is opt-in)
+  cropRect = { x: 0, y: 0, w: img.width, h: img.height };
   drawCrop();
 }
 
@@ -313,38 +316,40 @@ function drawCrop() {
   const s = cropCanvas._scale;
   const src = cropWorkCanvas || cropImg;
   cropCtx.clearRect(0, 0, cropCanvas.width, cropCanvas.height);
-  // Draw checkerboard behind to show transparency
   drawCheckerboard(cropCtx, cropCanvas.width, cropCanvas.height);
   cropCtx.drawImage(src, 0, 0, cropCanvas.width, cropCanvas.height);
-  // Darken outside crop
-  cropCtx.fillStyle = 'rgba(0,0,0,0.6)';
-  cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
-  // Draw cropped area bright (with checkerboard)
-  cropCtx.save();
-  cropCtx.beginPath();
-  cropCtx.rect(cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s);
-  cropCtx.clip();
-  drawCheckerboard(cropCtx, cropCanvas.width, cropCanvas.height);
-  cropCtx.drawImage(src,
-    cropRect.x, cropRect.y, cropRect.w, cropRect.h,
-    cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s
-  );
-  cropCtx.restore();
-  // Border
-  cropCtx.strokeStyle = '#508cff';
-  cropCtx.lineWidth = 2;
-  cropCtx.strokeRect(cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s);
-  // Corner handles
-  const corners = [
-    [cropRect.x, cropRect.y],
-    [cropRect.x + cropRect.w, cropRect.y],
-    [cropRect.x, cropRect.y + cropRect.h],
-    [cropRect.x + cropRect.w, cropRect.y + cropRect.h],
-  ];
-  cropCtx.fillStyle = '#508cff';
-  corners.forEach(([cx, cy]) => {
-    cropCtx.fillRect(cx * s - 5, cy * s - 5, 10, 10);
-  });
+
+  if (cropActive) {
+    // Darken outside crop
+    cropCtx.fillStyle = 'rgba(0,0,0,0.6)';
+    cropCtx.fillRect(0, 0, cropCanvas.width, cropCanvas.height);
+    // Draw cropped area bright (with checkerboard)
+    cropCtx.save();
+    cropCtx.beginPath();
+    cropCtx.rect(cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s);
+    cropCtx.clip();
+    drawCheckerboard(cropCtx, cropCanvas.width, cropCanvas.height);
+    cropCtx.drawImage(src,
+      cropRect.x, cropRect.y, cropRect.w, cropRect.h,
+      cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s
+    );
+    cropCtx.restore();
+    // Border
+    cropCtx.strokeStyle = '#508cff';
+    cropCtx.lineWidth = 2;
+    cropCtx.strokeRect(cropRect.x * s, cropRect.y * s, cropRect.w * s, cropRect.h * s);
+    // Corner handles
+    const corners = [
+      [cropRect.x, cropRect.y],
+      [cropRect.x + cropRect.w, cropRect.y],
+      [cropRect.x, cropRect.y + cropRect.h],
+      [cropRect.x + cropRect.w, cropRect.y + cropRect.h],
+    ];
+    cropCtx.fillStyle = '#508cff';
+    corners.forEach(([cx, cy]) => {
+      cropCtx.fillRect(cx * s - 5, cy * s - 5, 10, 10);
+    });
+  }
 }
 
 function drawCheckerboard(ctx, w, h) {
@@ -361,6 +366,26 @@ function drawCheckerboard(ctx, w, h) {
   }
 }
 
+// ─── Crop Toggle ───
+document.getElementById('crop-toggle').addEventListener('click', () => {
+  cropActive = !cropActive;
+  document.getElementById('crop-toggle').classList.toggle('active', cropActive);
+  if (cropActive) {
+    // Initialize crop to center 80% when first activated
+    const margin = 0.1;
+    cropRect = {
+      x: cropImg.width * margin,
+      y: cropImg.height * margin,
+      w: cropImg.width * (1 - 2 * margin),
+      h: cropImg.height * (1 - 2 * margin)
+    };
+  } else {
+    // Reset to full image
+    cropRect = { x: 0, y: 0, w: cropImg.width, h: cropImg.height };
+  }
+  drawCrop();
+});
+
 // ─── Magic Wand ───
 document.getElementById('crop-wand').addEventListener('click', () => {
   wandActive = !wandActive;
@@ -375,7 +400,7 @@ function floodFill(imageData, startX, startY, tolerance) {
   const seedR = data[idx], seedG = data[idx + 1], seedB = data[idx + 2];
   const visited = new Uint8Array(width * height);
   const stack = [startX, startY];
-  const tol = tolerance * 2.55; // 0-100 → 0-255 scale
+  const tol = tolerance * 2.55;
 
   while (stack.length > 0) {
     const y = stack.pop();
@@ -388,30 +413,93 @@ function floodFill(imageData, startX, startY, tolerance) {
     const dist = Math.sqrt(dr * dr + dg * dg + db * db);
     if (dist > tol) continue;
     visited[pi] = 1;
-    data[i + 3] = 0; // set alpha to 0
+    data[i + 3] = 0;
     stack.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
   }
 }
 
-let cropHandle = null; // null | 'move' | 'tl' | 'tr' | 'bl' | 'br'
+function applyWandAt(x, y, tolerance) {
+  if (!cropWorkCanvas || x < 0 || x >= cropWorkCanvas.width || y < 0 || y >= cropWorkCanvas.height) return;
+  const imgData = cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height);
+  floodFill(imgData, x, y, tolerance);
+  cropWorkCtx.putImageData(imgData, 0, 0);
+  drawCrop();
+}
+
+// Undo/redo for wand operations
+function wandUndo() {
+  if (wandUndoStack.length === 0) return;
+  // Save current state to redo
+  wandRedoStack.push(cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height));
+  // Restore previous state
+  cropWorkCtx.putImageData(wandUndoStack.pop(), 0, 0);
+  drawCrop();
+  showStatus('Undo');
+}
+
+function wandRedo() {
+  if (wandRedoStack.length === 0) return;
+  // Save current state to undo
+  wandUndoStack.push(cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height));
+  // Restore redo state
+  cropWorkCtx.putImageData(wandRedoStack.pop(), 0, 0);
+  drawCrop();
+  showStatus('Redo');
+}
+
+// Live tolerance: when slider changes, undo the last wand op and redo it with new tolerance
+document.getElementById('crop-tolerance').addEventListener('input', (e) => {
+  document.getElementById('crop-tolerance-val').textContent = e.target.value;
+  if (!lastWandClick || wandUndoStack.length === 0) return;
+  // Restore state from before the last click, then re-apply with new tolerance
+  const beforeLast = wandUndoStack[wandUndoStack.length - 1];
+  cropWorkCtx.putImageData(beforeLast, 0, 0);
+  // Re-run flood fill from same point with new tolerance (don't push new undo — we're replacing)
+  const tolerance = parseInt(e.target.value, 10);
+  const imgData = cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height);
+  floodFill(imgData, lastWandClick.x, lastWandClick.y, tolerance);
+  cropWorkCtx.putImageData(imgData, 0, 0);
+  wandRedoStack = [];
+  drawCrop();
+});
+
+// Ctrl+Z / Ctrl+Shift+Z while crop overlay is open
+document.addEventListener('keydown', (e) => {
+  if (cropOverlay.classList.contains('hidden')) return;
+  if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+    e.preventDefault();
+    wandUndo();
+  } else if (
+    ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+    (e.key === 'y' && (e.ctrlKey || e.metaKey))
+  ) {
+    e.preventDefault();
+    wandRedo();
+  }
+});
+
+let cropHandle = null;
 
 cropCanvas.addEventListener('mousedown', (e) => {
   if (wandActive && cropWorkCanvas) {
-    // Wand click: flood fill on full-res work canvas
     const rect = cropCanvas.getBoundingClientRect();
     const s = cropCanvas._scale;
     const fx = Math.floor((e.clientX - rect.left) / s);
     const fy = Math.floor((e.clientY - rect.top) / s);
     if (fx >= 0 && fx < cropWorkCanvas.width && fy >= 0 && fy < cropWorkCanvas.height) {
+      // Save state for undo before applying
+      wandUndoStack.push(cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height));
+      wandRedoStack = [];
+      lastWandClick = { x: fx, y: fy };
       const tolerance = parseInt(document.getElementById('crop-tolerance').value, 10);
-      const imgData = cropWorkCtx.getImageData(0, 0, cropWorkCanvas.width, cropWorkCanvas.height);
-      floodFill(imgData, fx, fy, tolerance);
-      cropWorkCtx.putImageData(imgData, 0, 0);
-      drawCrop();
-      showStatus('Background removed');
+      applyWandAt(fx, fy, tolerance);
+      showStatus('Background removed (Ctrl+Z to undo)');
     }
     return;
   }
+
+  // Only allow crop interaction when crop mode is active
+  if (!cropActive) return;
 
   const rect = cropCanvas.getBoundingClientRect();
   const s = cropCanvas._scale;
@@ -421,14 +509,12 @@ cropCanvas.addEventListener('mousedown', (e) => {
 
   const threshold = 12 / s;
   const r = cropRect;
-  // Check corners
   if (Math.abs(mx - r.x) < threshold && Math.abs(my - r.y) < threshold) cropHandle = 'tl';
   else if (Math.abs(mx - (r.x + r.w)) < threshold && Math.abs(my - r.y) < threshold) cropHandle = 'tr';
   else if (Math.abs(mx - r.x) < threshold && Math.abs(my - (r.y + r.h)) < threshold) cropHandle = 'bl';
   else if (Math.abs(mx - (r.x + r.w)) < threshold && Math.abs(my - (r.y + r.h)) < threshold) cropHandle = 'br';
   else if (mx > r.x && mx < r.x + r.w && my > r.y && my < r.y + r.h) cropHandle = 'move';
   else {
-    // Start new selection
     cropRect = { x: mx, y: my, w: 0, h: 0 };
     cropHandle = 'br';
   }
@@ -436,7 +522,7 @@ cropCanvas.addEventListener('mousedown', (e) => {
 });
 
 cropCanvas.addEventListener('mousemove', (e) => {
-  if (!cropDragging) return;
+  if (!cropDragging || !cropActive) return;
   const rect = cropCanvas.getBoundingClientRect();
   const s = cropCanvas._scale;
   const mx = (e.clientX - rect.left) / s;
