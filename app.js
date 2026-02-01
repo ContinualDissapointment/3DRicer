@@ -65,6 +65,9 @@ loader.load(modelPath, (gltf) => {
   });
   controllerMeshes = allMeshes;
 
+  // Build color picker sidebar
+  buildColorPickers(allMeshes);
+
   showStatus('Model loaded');
 }, undefined, (err) => {
   showStatus('Failed to load model');
@@ -81,6 +84,78 @@ function showStatus(msg) {
   statusEl.style.opacity = '1';
   clearTimeout(statusTimer);
   statusTimer = setTimeout(() => { statusEl.style.opacity = '0'; }, 2500);
+}
+
+// ─── Sidebar toggle ───
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+sidebarToggle.addEventListener('click', () => {
+  sidebar.classList.toggle('open');
+  sidebarToggle.textContent = sidebar.classList.contains('open') ? '▶ Colors' : '◀ Colors';
+});
+
+// ─── Section Color Picker ───
+const sectionMap = {
+  'Back Shell': 'Back_Baseq',
+  'Front Shell': 'Front_Base',
+  'Joystick Caps': 'Thumb_Top',
+  'Triggers': 'Trigger_Buttons',
+  'Side Panels': 'Side_Panels',
+  'Front Panel': 'Front_Panel',
+  'Buttons': 'Buttons',
+  'PS Logo': 'Logo',
+  'Light Bar': 'Emmissive',
+  'Port': 'Port',
+};
+
+function buildColorPickers(meshes) {
+  const container = document.getElementById('color-inputs');
+  container.innerHTML = '';
+  // Map material names to meshes (multiple meshes can share a material name)
+  const matMeshMap = {};
+  meshes.forEach(m => {
+    const name = m.material?.name || '';
+    if (!matMeshMap[name]) matMeshMap[name] = [];
+    matMeshMap[name].push(m);
+  });
+
+  for (const [label, matName] of Object.entries(sectionMap)) {
+    const targets = matMeshMap[matName];
+    if (!targets || targets.length === 0) continue;
+
+    // Clone materials so we can tint independently
+    targets.forEach(m => {
+      if (!m._originalMaterial) {
+        m._originalMaterial = m.material;
+        m.material = m.material.clone();
+      }
+    });
+
+    const row = document.createElement('div');
+    row.className = 'color-row';
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = '#ffffff';
+    input.addEventListener('input', () => {
+      const isWhite = input.value === '#ffffff';
+      targets.forEach(m => {
+        m.material.color.set(input.value);
+        // When tinting, remove the base color map so the color isn't
+        // multiplied against a dark texture. Restore it on reset to white.
+        if (isWhite) {
+          m.material.map = m._originalMaterial.map;
+        } else {
+          m.material.map = null;
+        }
+        m.material.needsUpdate = true;
+      });
+    });
+    row.appendChild(lbl);
+    row.appendChild(input);
+    container.appendChild(row);
+  }
 }
 
 // ─── Resize ───
@@ -400,7 +475,8 @@ function placeDecal(hit, texture, size = 0.04, rotation = 0, aspect = 1) {
   const decalMesh = new THREE.Mesh(decalGeom, decalMat);
   scene.add(decalMesh);
 
-  const decalObj = { mesh: decalMesh, position, normal, orient, size, rotation, texture, hit, flipH: false, flipV: false, aspect };
+  decalMesh.renderOrder = 0;
+  const decalObj = { mesh: decalMesh, position, normal, orient, size, rotation, texture, hit, flipH: false, flipV: false, aspect, layer: 0 };
   decals.push(decalObj);
   return decalObj;
 }
@@ -448,6 +524,7 @@ function rebuildDecal(decal) {
     depthWrite: false,
   });
   decal.mesh = new THREE.Mesh(decalGeom, decalMat);
+  decal.mesh.renderOrder = decal.layer || 0;
   scene.add(decal.mesh);
 }
 
@@ -556,6 +633,16 @@ document.addEventListener('keydown', (e) => {
     selectedDecal.flipV = !selectedDecal.flipV;
     rebuildDecal(selectedDecal);
     showStatus('Flipped vertically');
+  }
+  if (e.key === ']') {
+    selectedDecal.layer = (selectedDecal.layer || 0) + 1;
+    selectedDecal.mesh.renderOrder = selectedDecal.layer;
+    showStatus('Layer: ' + selectedDecal.layer);
+  }
+  if (e.key === '[') {
+    selectedDecal.layer = Math.max(0, (selectedDecal.layer || 0) - 1);
+    selectedDecal.mesh.renderOrder = selectedDecal.layer;
+    showStatus('Layer: ' + selectedDecal.layer);
   }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     scene.remove(selectedDecal.mesh);
