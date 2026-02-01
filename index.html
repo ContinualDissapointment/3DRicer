@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DualSense 3D Customizer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="viewport">
+    <canvas id="canvas"></canvas>
+    <div id="dropzone">
+      <div id="dropzone-text">Drop image here<br><small>or click to browse · Ctrl+V to paste</small></div>
+      <input type="file" id="file-input" accept="image/*" hidden>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button id="btn-light" title="Toggle light">💡</button>
+    <button id="btn-reset" title="Reset view">🔄</button>
+    <button id="btn-clear" title="Clear decals">🗑️</button>
+  </div>
+
+  <div id="crop-overlay" class="hidden">
+    <canvas id="crop-canvas"></canvas>
+    <div id="crop-buttons">
+      <button id="crop-confirm">✓ Apply</button>
+      <button id="crop-cancel">✕ Cancel</button>
+    </div>
+  </div>
+
+  <div id="instructions">
+    <h2>DualSense 3D Customizer</h2>
+    <ul>
+      <li><b>Rotate:</b> Left-click drag</li>
+      <li><b>Zoom:</b> Scroll wheel</li>
+      <li><b>Pan:</b> Right-click drag</li>
+      <li><b>Import image:</b> Drag &amp; drop, click viewport, or Ctrl+V</li>
+      <li><b>Place decal:</b> Click on controller after cropping</li>
+      <li><b>Select decal:</b> Click on it</li>
+      <li><b>Move decal:</b> Drag selected decal</li>
+      <li><b>Resize:</b> Ctrl + Scroll</li>
+      <li><b>Rotate:</b> R / E (opposite)</li>
+      <li><b>Flip:</b> H (horizontal) / V (vertical)</li>
+      <li><b>Delete:</b> Delete / Backspace</li>
+    </ul>
+    <button id="btn-dismiss">Got it</button>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

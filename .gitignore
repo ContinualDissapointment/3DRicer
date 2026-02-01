@@ -1,0 +1,13 @@
+models/
+01- PS5.DualSense.Controller/
+02- PS5.DualSense.Controller/
+03- PS5.DualSense.Controller/
+*.png
+*.jpg
+*.jpeg
+*.bin
+*.gltf
+*.glb
+*.obj
+*.mtl
+*.fbx

@@ -1,0 +1,128 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #1a1a1a;
+  color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#viewport {
+  width: 100%; height: 100vh;
+  position: relative;
+}
+
+#canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+
+/* Drop zone */
+#dropzone {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  transition: background 0.2s;
+  z-index: 5;
+}
+#dropzone.active {
+  background: rgba(80, 140, 255, 0.15);
+  border: 3px dashed #508cff;
+  pointer-events: auto;
+}
+#dropzone-text {
+  display: none;
+  color: #508cff;
+  font-size: 1.4rem;
+  text-align: center;
+}
+#dropzone.active #dropzone-text { display: block; }
+
+/* Toolbar */
+#toolbar {
+  position: fixed; top: 12px; right: 12px;
+  display: flex; gap: 8px; z-index: 10;
+}
+#toolbar button {
+  width: 40px; height: 40px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #2a2a2a;
+  color: #eee;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+#toolbar button:hover { background: #3a3a3a; }
+
+/* Crop overlay */
+#crop-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 100;
+}
+#crop-overlay.hidden { display: none; }
+#crop-canvas {
+  max-width: 80vw; max-height: 70vh;
+  border: 1px solid #555;
+  cursor: crosshair;
+}
+#crop-buttons {
+  margin-top: 16px;
+  display: flex; gap: 12px;
+}
+#crop-buttons button {
+  padding: 8px 24px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #eee;
+  font-size: 1rem;
+  cursor: pointer;
+}
+#crop-confirm { background: #2a6; border-color: #2a6; }
+#crop-confirm:hover { background: #3b7; }
+#crop-cancel:hover { background: #444; }
+
+/* Instructions */
+#instructions {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 12px;
+  padding: 28px 36px;
+  z-index: 200;
+  max-width: 420px;
+}
+#instructions.hidden { display: none; }
+#instructions h2 { margin-bottom: 14px; font-size: 1.2rem; }
+#instructions ul { list-style: none; margin-bottom: 18px; }
+#instructions li { margin: 6px 0; font-size: 0.9rem; color: #ccc; }
+#instructions li b { color: #eee; }
+#btn-dismiss {
+  display: block; margin: 0 auto;
+  padding: 8px 28px;
+  border: none; border-radius: 6px;
+  background: #508cff; color: #fff;
+  font-size: 1rem; cursor: pointer;
+}
+#btn-dismiss:hover { background: #6aa0ff; }
+
+/* Status hint */
+#status {
+  position: fixed; bottom: 12px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #aaa;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
